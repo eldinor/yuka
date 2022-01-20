@@ -4,4 +4,6 @@ Yuka is a JavaScript library for developing Game AI.
 
 THIS IS TEMPORARY BRANCH FOR INITIAL BABYLON.JS EXAMPLES
 
+See live at https://yuka.babylonpress.org/examples/
+
 TODO: Put copyright and license terms for GLB models used.
