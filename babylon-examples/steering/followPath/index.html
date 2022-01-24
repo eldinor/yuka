@@ -1,169 +1,185 @@
 <html lang="en">
-	<head>
-		<title>Yuka | Steering Behaviors | Follow Path</title>
-		<meta charset="utf-8">
-		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
-		<link rel="stylesheet" type="text/css" href="../../lib/styles.css">
-		<link rel="shortcut icon" type="image/x-icon" href="https://mugen87.github.io/yuka/favicon.ico">
+  <head>
+    <title>Yuka | Steering Behaviors | Follow Path</title>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0"
+    />
+    <link
+      rel="stylesheet"
+      type="text/css"
+      href="../../../examples/lib/styles.css"
+    />
+    <link
+      rel="shortcut icon"
+      type="image/x-icon"
+      href="https://mugen87.github.io/yuka/favicon.ico"
+    />
 
-		<script src="https://cdn.jsdelivr.net/npm/babylonjs@4.2.0/babylon.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/babylonjs@4.2.0/babylon.min.js"></script>
+  </head>
+  <body>
+    <section id="info">
+      <p>
+        This steering behavior produces a force that moves a vehicle along a
+        series of waypoints forming a path.<br />
+        An additional steering behavior (OnPath) can be used to realize a more
+        strict path following.
+      </p>
+    </section>
+    <canvas
+      id="renderCanvas"
+      style="width: 100%; height: 100%; touch-action: none"
+    ></canvas>
+    <script type="module">
+      import * as YUKA from "../../../build/yuka.module.js";
+      import * as DAT from "https://cdn.jsdelivr.net/npm/dat.gui@0.7.7/build/dat.gui.module.js";
 
-	</head>
-<body>
+      let engine, scene;
 
-	<section id="info">
-		<p>
-			This steering behavior produces a force that moves a vehicle along a series of waypoints forming a path.<br/>
-			An additional steering behavior (OnPath) can be used to realize a more strict path following.
-		</p>
-	</section>
-	<canvas id="renderCanvas" style="width: 100%; height: 100%; touch-action: none"></canvas>
-	<script type="module">
+      let entityManager, time, vehicle;
 
-		import * as YUKA from '../../../build/yuka.module.js';
-		import * as DAT from 'https://cdn.jsdelivr.net/npm/dat.gui@0.7.7/build/dat.gui.module.js';
+      const entityMatrix = new BABYLON.Matrix();
 
-		let engine, scene;
+      let lines;
 
-		let entityManager, time, vehicle;
+      let onPathBehavior;
 
-		const entityMatrix = new BABYLON.Matrix();
+      const params = {
+        onPathActive: true,
+        radius: 0.1,
+      };
 
-		let	lines;
+      init();
+      animate();
 
-		let onPathBehavior;
+      function init() {
+        const canvas = document.getElementById("renderCanvas");
+        engine = new BABYLON.Engine(canvas, true, {}, true);
 
-		const params = {
-			onPathActive: true,
-			radius: 0.1
-		};
+        scene = new BABYLON.Scene(engine);
+        scene.clearColor = new BABYLON.Color3(0, 0, 0);
+        //	scene.debugLayer.show();
 
-		init();
-		animate();
+        const camera = new BABYLON.ArcRotateCamera(
+          "camera",
+          BABYLON.Tools.ToRadians(-90),
+          BABYLON.Tools.ToRadians(180),
+          15,
+          BABYLON.Vector3.Zero(),
+          scene
+        );
 
-		function init() {
+        camera.target = new BABYLON.Vector3(0, 0, 0);
+        camera.attachControl(canvas, true);
 
-			const canvas = document.getElementById( 'renderCanvas' );
-			engine = new BABYLON.Engine( canvas, true, {}, true );
+        new BABYLON.HemisphericLight("light", new BABYLON.Vector3(1, -1, 0));
 
-			scene = new BABYLON.Scene( engine );
-			scene.clearColor = new BABYLON.Color3( 0, 0, 0 );
-		//	scene.debugLayer.show();
+        //
 
-			const camera = new BABYLON.ArcRotateCamera("camera", BABYLON.Tools.ToRadians(-90), BABYLON.Tools.ToRadians(180), 15, BABYLON.Vector3.Zero(), scene);
+        const vehicleMesh = BABYLON.MeshBuilder.CreateCylinder(
+          "cone",
+          { height: 0.5, diameterTop: 0, diameterBottom: 0.25 },
+          scene
+        );
+        vehicleMesh.rotation.x = Math.PI * 0.5;
+        vehicleMesh.bakeCurrentTransformIntoVertices();
 
-			camera.target = new BABYLON.Vector3( 0, 0, 0 );
-			camera.attachControl(canvas, true);
+        // dat.gui
 
-			new BABYLON.HemisphericLight( 'light', new BABYLON.Vector3( 1, -1, 0 ) );
+        const gui = new DAT.GUI({ width: 300 });
 
-			//
+        gui
+          .add(params, "onPathActive")
+          .name("activate onPath")
+          .onChange((value) => (onPathBehavior.active = value));
+        gui
+          .add(params, "radius", 0.01, 1)
+          .name("radius")
+          .onChange((value) => (onPathBehavior.radius = value));
 
-			const vehicleMesh = BABYLON.MeshBuilder.CreateCylinder( 'cone', { height: 0.5, diameterTop: 0, diameterBottom: 0.25 }, scene );
-			vehicleMesh.rotation.x = Math.PI * 0.5;
-			vehicleMesh.bakeCurrentTransformIntoVertices();
+        gui.open();
 
-			// dat.gui
+        //
 
-			const gui = new DAT.GUI( { width: 300 } );
+        //
 
-			gui.add( params, 'onPathActive' ).name( 'activate onPath' ).onChange( ( value ) => onPathBehavior.active = value );
-			gui.add( params, 'radius', 0.01, 1 ).name( 'radius' ).onChange( ( value ) => onPathBehavior.radius = value );
+        window.addEventListener("resize", onWindowResize, false);
 
-			gui.open();
+        // game setup
 
-			//
+        entityManager = new YUKA.EntityManager();
+        time = new YUKA.Time();
+        vehicle = new YUKA.Vehicle();
 
+        vehicle.setRenderComponent(vehicleMesh, sync);
 
-			//
+        const path = new YUKA.Path();
+        path.loop = true;
+        path.add(new YUKA.Vector3(-4, 0, 4));
+        path.add(new YUKA.Vector3(-6, 0, 0));
+        path.add(new YUKA.Vector3(-4, 0, -4));
+        path.add(new YUKA.Vector3(0, 0, 0));
+        path.add(new YUKA.Vector3(4, 0, -4));
+        path.add(new YUKA.Vector3(6, 0, 0));
+        path.add(new YUKA.Vector3(4, 0, 4));
+        path.add(new YUKA.Vector3(0, 0, 6));
 
-			window.addEventListener( 'resize', onWindowResize, false );
+        vehicle.position.copy(path.current());
 
-			// game setup
+        // use "FollowPathBehavior" for basic path following
 
-			entityManager = new YUKA.EntityManager();
-			time = new YUKA.Time();
-			vehicle = new YUKA.Vehicle();
+        const followPathBehavior = new YUKA.FollowPathBehavior(path, 0.5);
+        vehicle.steering.add(followPathBehavior);
 
-			vehicle.setRenderComponent( vehicleMesh, sync );
+        // use "OnPathBehavior" to realize a more strict path following.
+        // it's a separate steering behavior to provide more flexibility.
 
-			const path = new YUKA.Path();
-			path.loop = true;
-			path.add( new YUKA.Vector3( - 4, 0, 4 ) );
-			path.add( new YUKA.Vector3( - 6, 0, 0 ) );
-			path.add( new YUKA.Vector3( - 4, 0, - 4 ) );
-			path.add( new YUKA.Vector3( 0, 0, 0 ) );
-			path.add( new YUKA.Vector3( 4, 0, - 4 ) );
-			path.add( new YUKA.Vector3( 6, 0, 0 ) );
-			path.add( new YUKA.Vector3( 4, 0, 4 ) );
-			path.add( new YUKA.Vector3( 0, 0, 6 ) );
+        onPathBehavior = new YUKA.OnPathBehavior(path);
+        vehicle.steering.add(onPathBehavior);
 
-			vehicle.position.copy( path.current() );
+        entityManager.add(vehicle);
 
-			// use "FollowPathBehavior" for basic path following
+        //
 
-			const followPathBehavior = new YUKA.FollowPathBehavior( path, 0.5 );
-			vehicle.steering.add( followPathBehavior );
+        const position = [];
 
-			// use "OnPathBehavior" to realize a more strict path following.
-			// it's a separate steering behavior to provide more flexibility.
+        for (let i = 0; i < path._waypoints.length; i++) {
+          const waypoint = path._waypoints[i];
 
-			onPathBehavior = new YUKA.OnPathBehavior( path );
-			vehicle.steering.add( onPathBehavior );
+          position.push(waypoint.x, waypoint.y, waypoint.z);
+        }
 
-			entityManager.add( vehicle );
+        path._waypoints.push(path._waypoints[0]); // to close the line
+        lines = BABYLON.MeshBuilder.CreateLines("lines", {
+          points: path._waypoints,
+          updatable: true,
+        });
 
-			//
+        lines.color = BABYLON.Color3.Teal();
+      }
 
-			const position = [];
+      function onWindowResize() {
+        engine.resize();
+      }
 
-			for ( let i = 0; i < path._waypoints.length; i ++ ) {
+      function animate() {
+        requestAnimationFrame(animate);
 
-				const waypoint = path._waypoints[ i ];
+        const delta = time.update().getDelta();
 
-				position.push( waypoint.x, waypoint.y, waypoint.z );
+        entityManager.update(delta);
 
-			}
+        scene.render();
+      }
 
-			path._waypoints.push(path._waypoints[0]) 	// to close the line
-			lines = BABYLON.MeshBuilder.CreateLines("lines", {
-						points: path._waypoints,
-						updatable: true
-					});
+      function sync(entity, renderComponent) {
+        entity.worldMatrix.toArray(entityMatrix.m);
 
-			lines.color =  BABYLON.Color3.Teal();
-
-
-		}
-
-		function onWindowResize() {
-
-			engine.resize();
-
-		}
-
-		function animate() {
-
-			requestAnimationFrame( animate );
-
-			const delta = time.update().getDelta();
-
-			entityManager.update( delta );
-
-			scene.render();
-
-		}
-
-		function sync( entity, renderComponent ) {
-
-			entity.worldMatrix.toArray( entityMatrix.m );
-
-			const matrix = renderComponent.getWorldMatrix();
-			matrix.copyFrom( entityMatrix );
-
-		}
-
-	</script>
-
-</body>
+        const matrix = renderComponent.getWorldMatrix();
+        matrix.copyFrom(entityMatrix);
+      }
+    </script>
+  </body>
 </html>
